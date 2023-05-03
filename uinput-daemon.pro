@@ -8,6 +8,6 @@ HEADERS += \
 CONFIG += link_pkgconfig
 PKGCONFIG += tslib
 
-target.path = /progetti
+target.path = /usr/bin
 
 INSTALLS += target

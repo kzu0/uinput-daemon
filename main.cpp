@@ -8,6 +8,10 @@
 #include <errno.h>
 #include <tslib.h>
 #include <QDebug>
+#include <QString>
+#include <sys/mman.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 //---------------------------------------------------------------------------------------------------------------------
 // https://github.com/libts/tslib#setup-and-configure-tslib
 //---------------------------------------------------------------------------------------------------------------------
@@ -35,6 +39,7 @@ int main(int argc, char *argv[]) {
 	// notificare all'applicazione che deve
 	// resettare la posizione del cursore
 	//
+	/*
 	FILE* fp = NULL;
 	fp = fopen("/tmp/uinput", "wb");
 	if (fp != NULL) {
@@ -43,6 +48,7 @@ int main(int argc, char *argv[]) {
 		fputs(str, fp);
 		fclose(fp);
 	}
+	*/
 
 	//
 	// Inizializzazione TSLib
@@ -84,6 +90,26 @@ int main(int argc, char *argv[]) {
 	UinputEvent(fd, EV_REL, REL_Y, -480);
 	UinputEvent(fd, EV_SYN, SYN_REPORT, 0);
 
+
+	//
+	// Shared memory segment in cui sono salvate
+	// le coordinate del cursore delle Qt
+	//
+	FILE *fp;
+	fp = fopen("/tmp/shmid.txt", "r");
+	if (fp == NULL) {
+		perror("fopen");
+		ts_close(ts);
+		exit(1);
+	}
+
+	int shmid;
+	fscanf (fp, "%d", &shmid);
+	fclose(fp);
+
+
+
+
 	//
 	// Ascolto gli eventi della TSLib
 	//
@@ -117,6 +143,25 @@ int main(int argc, char *argv[]) {
 							 samp_mt[j][i].pressure);
 
 							 */
+
+				// Press
+				if (samp_mt[j][i].pressure == 255 and pressure == 0) {
+					if (shmid >= 0) {
+						int* shared_mem = (int *)shmat(shmid, NULL, 0);
+
+						char str[16];
+						sprintf(str, "%s", shared_mem);
+
+						QString s(str);
+						QStringList list = s.split(" ");
+
+						if (list.size() >= 2) {
+							abs_x = list.at(0).toInt();
+							abs_y = list.at(1).toInt();
+						}
+						qDebug() << abs_x << abs_y;
+					}
+				}
 
 				// Coordinate assolute dell'evento della TSLib
 				int samp_x = samp_mt[j][i].x;
