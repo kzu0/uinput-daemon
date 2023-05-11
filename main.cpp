@@ -21,8 +21,6 @@
 int main(int argc, char *argv[]) {
 
 	int fd = -1;
-	int abs_x = 0;
-	int abs_y = 0;
 	int pressure = 0;
 
 	//
@@ -33,22 +31,6 @@ int main(int argc, char *argv[]) {
 		perror("uinput_init error");
 		return -1;
 	}
-
-	//
-	// Scrive l'indice del device in un file per
-	// notificare all'applicazione che deve
-	// resettare la posizione del cursore
-	//
-	/*
-	FILE* fp = NULL;
-	fp = fopen("/tmp/uinput", "wb");
-	if (fp != NULL) {
-		char str[16];
-		sprintf(str, "%d\n", fd);
-		fputs(str, fp);
-		fclose(fp);
-	}
-	*/
 
 	//
 	// Inizializzazione TSLib
@@ -82,35 +64,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	//
-	// Necessario altrimenti il primo evento
-	// non viene raccolto dalle Qt
-	//
-	sleep(1);
-	UinputEvent(fd, EV_REL, REL_X, -800);
-	UinputEvent(fd, EV_REL, REL_Y, -480);
-	UinputEvent(fd, EV_SYN, SYN_REPORT, 0);
-
-
-	//
-	// Shared memory segment in cui sono salvate
-	// le coordinate del cursore delle Qt
-	//
-	FILE *fp;
-	fp = fopen("/tmp/shmid.txt", "r");
-	if (fp == NULL) {
-		perror("fopen");
-		ts_close(ts);
-		exit(1);
-	}
-
-	int shmid;
-	fscanf (fp, "%d", &shmid);
-	fclose(fp);
-
-
-
-
-	//
 	// Ascolto gli eventi della TSLib
 	//
 	while (1) {
@@ -133,43 +86,9 @@ int main(int argc, char *argv[]) {
 					continue;
 #endif
 
-				/*
-				printf("%ld.%06ld: (slot %d) %6d %6d %6d\n",
-							 samp_mt[j][i].tv.tv_sec,
-							 samp_mt[j][i].tv.tv_usec,
-							 samp_mt[j][i].slot,
-							 samp_mt[j][i].x,
-							 samp_mt[j][i].y,
-							 samp_mt[j][i].pressure);
-
-							 */
-
-				// Press
-				if (samp_mt[j][i].pressure == 255 and pressure == 0) {
-					if (shmid >= 0) {
-						int* shared_mem = (int *)shmat(shmid, NULL, 0);
-
-						char str[16];
-						sprintf(str, "%s", shared_mem);
-
-						QString s(str);
-						QStringList list = s.split(" ");
-
-						if (list.size() >= 2) {
-							abs_x = list.at(0).toInt();
-							abs_y = list.at(1).toInt();
-						}
-						qDebug() << abs_x << abs_y;
-					}
-				}
-
 				// Coordinate assolute dell'evento della TSLib
-				int samp_x = samp_mt[j][i].x;
-				int samp_y = samp_mt[j][i].y;
-
-				// Coordinate relative rispetto all'ultimo evento registrato
-				int rel_x = samp_x - abs_x;
-				int rel_y = samp_y - abs_y;
+				int abs_x = samp_mt[j][i].x;
+				int abs_y = samp_mt[j][i].y;
 
 				__time_t sec = samp_mt[j][i].tv.tv_sec;
 				__suseconds_t usec = samp_mt[j][i].tv.tv_usec;
@@ -179,9 +98,9 @@ int main(int argc, char *argv[]) {
 					// Move
 					if (samp_mt[j][i].pressure == 255 and pressure == 255) {
 
-						qDebug() << "Move:" << rel_x << rel_y;
-						UinputEvent(fd, EV_REL, REL_X, rel_x, sec, usec);
-						UinputEvent(fd, EV_REL, REL_Y, rel_y, sec, usec);
+						qDebug() << "Move:" << abs_x << abs_y;
+						UinputEvent(fd, EV_ABS, ABS_X, abs_x, sec, usec);
+						UinputEvent(fd, EV_ABS, ABS_Y, abs_y, sec, usec);
 						UinputEvent(fd, EV_SYN, SYN_REPORT, 0, sec, usec);
 
 					} else {
@@ -189,10 +108,10 @@ int main(int argc, char *argv[]) {
 						// Press
 						if (samp_mt[j][i].pressure == 255 and pressure == 0) {
 
-							qDebug() << "Press:" << rel_x << rel_y;
-							UinputEvent(fd, EV_REL, REL_X, rel_x, sec, usec);
-							UinputEvent(fd, EV_REL, REL_Y, rel_y, sec, usec);
-							UinputEvent(fd, EV_KEY, BTN_LEFT, 1, sec, usec);
+							qDebug() << "Press:" << abs_x << abs_y;
+							UinputEvent(fd, EV_ABS, ABS_X, abs_x, sec, usec);
+							UinputEvent(fd, EV_ABS, ABS_Y, abs_y, sec, usec);
+							UinputEvent(fd, EV_KEY, BTN_TOUCH, 1, sec, usec);
 							UinputEvent(fd, EV_SYN, SYN_REPORT, 0, sec, usec);
 
 						} else {
@@ -200,24 +119,33 @@ int main(int argc, char *argv[]) {
 							// Release
 							if (samp_mt[j][i].pressure == 0 and pressure == 255) {
 
-								qDebug() << "Release:" << rel_x << rel_y;
-								UinputEvent(fd, EV_REL, REL_X, rel_x, sec, usec);
-								UinputEvent(fd, EV_REL, REL_Y, rel_y, sec, usec);
-								UinputEvent(fd, EV_KEY, BTN_LEFT, 0, sec, usec);
+								qDebug() << "Release:" << abs_x << abs_y;
+								UinputEvent(fd, EV_ABS, ABS_X, abs_x, sec, usec);
+								UinputEvent(fd, EV_ABS, ABS_Y, abs_y, sec, usec);
+								UinputEvent(fd, EV_KEY, BTN_TOUCH, 0, sec, usec);
 								UinputEvent(fd, EV_SYN, SYN_REPORT, 0, sec, usec);
 							}
 						}
 					}
 				}
 
-				abs_x = samp_x;
-				abs_y = samp_y;
 				pressure = samp_mt[j][i].pressure;
 			}
 		}
 	}
 
+	//
+	// Close TSLib
+	//
 	ts_close(ts);
+
+	/*
+	* Give userspace some time to read the events before we destroy the
+	* device with UI_DEV_DESTROY.
+	*/
+	sleep(1);
+
+	UinputClose(fd);
 
 	return 0;
 
