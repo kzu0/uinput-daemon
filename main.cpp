@@ -12,16 +12,44 @@
 #include <sys/mman.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <signal.h>
+#include <unistd.h>
+#include <QDebug>
 //---------------------------------------------------------------------------------------------------------------------
 // https://github.com/libts/tslib#setup-and-configure-tslib
 //---------------------------------------------------------------------------------------------------------------------
-#define SLOTS 1
+#define SLOTS 10
 #define SAMPLES 1
+//---------------------------------------------------------------------------------------------------------------------
+int fd = -1;
+bool terminate = false;
+struct tsdev *ts = NULL;
+//---------------------------------------------------------------------------------------------------------------------
+void catch_sigkill(int) {
+
+	qDebug() << "catch_sigkill";
+	terminate = true;
+}
+//---------------------------------------------------------------------------------------------------------------------
+void catch_sigterm(int) {
+
+	qDebug() << "catch_sigterm";
+	terminate = true;
+}
+//---------------------------------------------------------------------------------------------------------------------
+void catch_sigsegv(int) {
+
+	qDebug() << "catch_sigsegv";
+	terminate = true;
+}
 //---------------------------------------------------------------------------------------------------------------------
 int main(int argc, char *argv[]) {
 
-	int fd = -1;
 	int pressure = 0;
+
+	signal(SIGKILL, catch_sigkill);
+	signal(SIGSEGV, catch_sigsegv);
+	signal(SIGTERM, catch_sigterm);
 
 	//
 	// Inizializzazione Uinput
@@ -35,7 +63,6 @@ int main(int argc, char *argv[]) {
 	//
 	// Inizializzazione TSLib
 	//
-	struct tsdev *ts;
 	char *tsdevice = NULL;
 	struct ts_sample_mt **samp_mt = NULL;
 	int ret, i, j;
@@ -43,13 +70,15 @@ int main(int argc, char *argv[]) {
 	ts = ts_setup(tsdevice, 0);
 	if (!ts) {
 		perror("ts_setup");
+		qDebug() << "ts_setp_error";
 		return -1;
 	}
 
 	samp_mt = (ts_sample_mt **)malloc(SAMPLES * sizeof(struct ts_sample_mt *));
 	if (!samp_mt) {
 		ts_close(ts);
-		return -ENOMEM;
+		qDebug() << "malloc error";
+		return -1;
 	}
 	for (i = 0; i < SAMPLES; i++) {
 		samp_mt[i] = (ts_sample_mt*)calloc(SLOTS, sizeof(struct ts_sample_mt));
@@ -59,7 +88,8 @@ int main(int argc, char *argv[]) {
 			}
 			free(samp_mt);
 			ts_close(ts);
-			return -ENOMEM;
+			qDebug() << "calloc error";
+			return -1;
 		}
 	}
 
@@ -68,15 +98,24 @@ int main(int argc, char *argv[]) {
 	//
 	while (1) {
 
+		if (terminate) {
+			goto exit;
+		}
+
 		ret = ts_read_mt(ts, samp_mt, SLOTS, SAMPLES);
 		if (ret < 0) {
 			perror("ts_read_mt");
+			qDebug() << "ts_read_mt_error";
 			ts_close(ts);
 			exit(1);
 		}
 
 		for (j = 0; j < ret; j++) {
 			for (i = 0; i < SLOTS; i++) {
+
+				if (terminate) {
+					goto exit;
+				}
 
 #ifdef TSLIB_MT_VALID
 				if (!(samp_mt[j][i].valid & TSLIB_MT_VALID))
@@ -134,10 +173,16 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	exit:
+
+	qDebug() << "Terminating...";
+
 	//
 	// Close TSLib
 	//
-	ts_close(ts);
+	if (ts != NULL) {
+		ts_close(ts);
+	}
 
 	/*
 	* Give userspace some time to read the events before we destroy the
